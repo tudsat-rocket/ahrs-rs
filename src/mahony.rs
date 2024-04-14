@@ -28,6 +28,12 @@ pub struct Mahony<N: Scalar + SimdValue + Copy> {
     e_int: Vector3<N>,
     /// Filter state quaternion.
     pub quat: UnitQuaternion<N>,
+    /// Gain for gyro. Defaults to 1.0.
+    gyro_gain: N,
+    /// Gain for accelerometer. Defaults to 1.0.
+    acc_gain: N,
+    /// Gain for magnetometer. Defaults to 1.0.
+    mag_gain: N,
 }
 
 impl<N: SimdRealField + Eq + Copy> Eq for Mahony<N> where N::Element: SimdRealField {}
@@ -65,6 +71,9 @@ impl<N: Scalar + SimdValue + Copy> Clone for Mahony<N> {
         let ki = self.ki;
         let e_int = self.e_int;
         let quat = self.quat;
+        let gyro_gain = self.gyro_gain;
+        let acc_gain = self.acc_gain;
+        let mag_gain = self.mag_gain;
 
         Mahony {
             sample_period,
@@ -72,6 +81,9 @@ impl<N: Scalar + SimdValue + Copy> Clone for Mahony<N> {
             ki,
             e_int,
             quat,
+            gyro_gain,
+            acc_gain,
+            mag_gain,
         }
     }
 }
@@ -101,6 +113,9 @@ impl Default for Mahony<f64> {
             ki: 0.0f64,
             e_int: Vector3::new(0.0, 0.0, 0.0),
             quat: UnitQuaternion::new_unchecked(Quaternion::new(1.0f64, 0.0, 0.0, 0.0)),
+            gyro_gain: 1.0,
+            acc_gain: 1.0,
+            mag_gain: 1.0,
         }
     }
 }
@@ -142,6 +157,9 @@ impl<N: RealField + Copy> Mahony<N> {
             ki,
             e_int: nalgebra::zero(),
             quat,
+            gyro_gain: N::one(),
+            acc_gain: N::one(),
+            mag_gain: N::one(),
         }
     }
 }
@@ -197,6 +215,36 @@ impl<N: Scalar + SimdValue + Copy> Mahony<N> {
     pub fn quat_mut(&mut self) -> &mut UnitQuaternion<N> {
         &mut self.quat
     }
+
+    /// Gyroscope gain.
+    pub fn gyro_gain(&self) -> N {
+        self.gyro_gain
+    }
+
+    /// Mutable reference to gyroscope gain.
+    pub fn gyro_gain_mut(&mut self) -> &mut N {
+        &mut self.gyro_gain
+    }
+
+    /// Accelerometer gain.
+    pub fn acc_gain(&self) -> N {
+        self.acc_gain
+    }
+
+    /// Mutable reference to accelerometer gain.
+    pub fn acc_gain_mut(&mut self) -> &mut N {
+        &mut self.acc_gain
+    }
+
+    /// Magnetometer gain.
+    pub fn mag_gain(&self) -> N {
+        self.mag_gain
+    }
+
+    /// Mutable reference to magnetometer gain.
+    pub fn mag_gain_mut(&mut self) -> &mut N {
+        &mut self.mag_gain
+    }
 }
 
 impl<N: simba::scalar::RealField + Copy> Ahrs<N> for Mahony<N> {
@@ -246,7 +294,7 @@ impl<N: simba::scalar::RealField + Copy> Ahrs<N> for Mahony<N> {
             two*b[0]*(q[3]*q[1] + q[0]*q[2])        + two*b[2]*(half - q[0]*q[0] - q[1]*q[1])
         );
 
-        let e: Vector3<N> = accel.cross(&v) + mag.cross(&w);
+        let e: Vector3<N> = accel.cross(&v) * self.acc_gain + mag.cross(&w) * self.mag_gain;
 
         // Error is sum of cross product between estimated direction and measured direction of fields
         if self.ki > zero {
@@ -259,7 +307,7 @@ impl<N: simba::scalar::RealField + Copy> Ahrs<N> for Mahony<N> {
         }
 
         // Apply feedback terms
-        let gyro = *gyroscope + e * self.kp + self.e_int * self.ki;
+        let gyro = *gyroscope * self.gyro_gain + e * self.kp + self.e_int * self.ki;
 
         // Compute rate of change of quaternion
         let qDot = q * Quaternion::from_parts(zero, gyro) * half;
